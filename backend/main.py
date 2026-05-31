@@ -12,6 +12,14 @@ from datetime import datetime, timedelta, timezone
 import sqlite3
 import jwt
 import os
+
+import bcrypt
+if not hasattr(bcrypt, '__about__'):
+    class MockAbout:
+        pass
+    MockAbout.__version__ = getattr(bcrypt, '__version__', '4.0.0')
+    bcrypt.__about__ = MockAbout
+
 from passlib.context import CryptContext
 
 DB_PATH = "/tmp/users.db" if os.environ.get("VERCEL") else "users.db"
