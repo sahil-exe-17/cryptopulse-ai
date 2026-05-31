@@ -261,20 +261,28 @@ def predict_price(coin: str = "BTC"):
         raise HTTPException(status_code=400, detail="Coin not supported")
 
     if not AI_LIBS_AVAILABLE:
-        # Return mock data for Vercel since heavy libs are omitted
         import random
         base_price = 7900000 if coin.upper() == "BTC" else 280000 if coin.upper() == "ETH" else 15000
         change = base_price * (0.01 + random.random() * 0.04)
+        target_inr = base_price + change
+        trend = "up" if change > 0 else "down"
+        
+        forecast = [
+            {"time": "Now", "price": base_price, "aiLower": base_price, "aiUpper": base_price, "predicted": base_price},
+            {"time": "+1H", "price": None, "aiLower": base_price * 0.99, "aiUpper": base_price * 1.01, "predicted": base_price + change * 0.05},
+            {"time": "+4H", "price": None, "aiLower": base_price * 0.98, "aiUpper": base_price * 1.02, "predicted": base_price + change * 0.2},
+            {"time": "+12H", "price": None, "aiLower": base_price * 0.95, "aiUpper": base_price * 1.05, "predicted": base_price + change * 0.5},
+            {"time": "+24H", "price": None, "aiLower": base_price * 0.92, "aiUpper": base_price * 1.08, "predicted": target_inr}
+        ]
+
         return {
             "coin": coin.upper(),
-            "current_price": base_price,
-            "predicted_price_24h": base_price + change,
-            "confidence_score": 0.88,
-            "signal": "BUY" if change > 0 else "SELL",
-            "historical_data": [
-                {"date": (datetime.now() - timedelta(days=i)).strftime('%Y-%m-%d'), "price": base_price - (change * i / 5)}
-                for i in range(30, 0, -1)
-            ]
+            "current_price_inr": base_price,
+            "target_24h_inr": target_inr,
+            "trend": trend,
+            "confidence": 88,
+            "signal": "STRONG BUY" if trend == "up" else "SELL",
+            "forecast": forecast
         }
 
     # Fetch last 60 days of data
