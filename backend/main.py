@@ -43,7 +43,8 @@ TICKER_MAP = {
 }
 
 # --- AUTHENTICATION SETUP ---
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# Reduce bcrypt rounds to 4 (minimum) to make hashing extremely fast on Vercel's slow serverless CPU
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto", bcrypt__rounds=4)
 SECRET_KEY = "crypto_pulse_secret_key_change_in_prod"
 ALGORITHM = "HS256"
 
