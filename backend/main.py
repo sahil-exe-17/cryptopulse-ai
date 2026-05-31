@@ -193,7 +193,7 @@ def delete_portfolio_asset(ticker: str, email: str = Depends(get_current_user_em
 # USD to INR conversion rate (Approximate for the MVP)
 USD_TO_INR = 84.0
 
-def fetch_historical_data(ticker_symbol: str, days: int = 30):
+def fetch_historical_data(ticker_symbol: str, days: int = 60):
     try:
         # Fetch data with 1h interval for better granularity over 30 days
         # yfinance limits 1h data to max 730 days. 30 days is fine.
@@ -205,7 +205,7 @@ def fetch_historical_data(ticker_symbol: str, days: int = 30):
         print(f"Error fetching data: {e}")
         return None
 
-def train_and_predict(data: pd.DataFrame):
+def train_and_predict(data):
     """
     Trains a simple Linear Regression model on closing prices and predicts the next 24 hours.
     Returns: (predictions_array, confidence_score)
