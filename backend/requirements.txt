@@ -4,5 +4,3 @@ passlib[bcrypt]
 bcrypt==3.2.2
 PyJWT
 pydantic
-psycopg2-binary
-python-dotenv
