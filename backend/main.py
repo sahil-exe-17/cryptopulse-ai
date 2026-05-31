@@ -9,12 +9,14 @@ try:
 except ImportError:
     AI_LIBS_AVAILABLE = False
 from datetime import datetime, timedelta, timezone
-import sqlite3
+import psycopg2
 import jwt
 import os
+from dotenv import load_dotenv
 from passlib.context import CryptContext
 
-DB_PATH = "/tmp/users.db" if os.environ.get("VERCEL") else "users.db"
+load_dotenv()
+DB_URL = os.environ.get("DATABASE_URL")
 from pydantic import BaseModel
 
 app = FastAPI(title="CryptoPulse AI Backend")
@@ -48,20 +50,37 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto", bcrypt__rounds
 SECRET_KEY = "crypto_pulse_secret_key_change_in_prod"
 ALGORITHM = "HS256"
 
+def get_db_connection():
+    if not DB_URL:
+        raise Exception("DATABASE_URL environment variable is not set. Please add it to your environment/Vercel settings to connect to Supabase.")
+    return psycopg2.connect(DB_URL)
+
 def init_db():
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute('''CREATE TABLE IF NOT EXISTS users
-                 (email TEXT PRIMARY KEY, password TEXT, display_name TEXT, default_currency TEXT)''')
-    c.execute('''CREATE TABLE IF NOT EXISTS portfolios
-                 (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT, name TEXT, ticker TEXT, quantity REAL)''')
+    if not DB_URL:
+        print("Warning: DATABASE_URL not set. Skipping DB initialization.")
+        return
     try:
-        c.execute("ALTER TABLE users ADD COLUMN display_name TEXT")
-        c.execute("ALTER TABLE users ADD COLUMN default_currency TEXT")
-    except sqlite3.OperationalError:
-        pass
-    conn.commit()
-    conn.close()
+        conn = get_db_connection()
+        c = conn.cursor()
+        c.execute('''CREATE TABLE IF NOT EXISTS users
+                     (email TEXT PRIMARY KEY, password TEXT, display_name TEXT, default_currency TEXT)''')
+        # In postgres, SERIAL is used for auto-incrementing ID
+        c.execute('''CREATE TABLE IF NOT EXISTS portfolios
+                     (id SERIAL PRIMARY KEY, email TEXT, name TEXT, ticker TEXT, quantity REAL)''')
+        conn.commit()
+        
+        # Check if columns exist
+        c.execute("SELECT column_name FROM information_schema.columns WHERE table_name='users'")
+        columns = [row[0] for row in c.fetchall()]
+        if 'display_name' not in columns:
+            c.execute("ALTER TABLE users ADD COLUMN display_name TEXT")
+        if 'default_currency' not in columns:
+            c.execute("ALTER TABLE users ADD COLUMN default_currency TEXT")
+            
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print("DB Init Error:", e)
 
 init_db()
 
@@ -72,9 +91,9 @@ class UserAuth(BaseModel):
 @app.post("/register")
 def register_user(user: UserAuth):
     try:
-        conn = sqlite3.connect(DB_PATH)
+        conn = get_db_connection()
         c = conn.cursor()
-        c.execute("SELECT email FROM users WHERE email=?", (user.email,))
+        c.execute("SELECT email FROM users WHERE email=%s", (user.email,))
         if c.fetchone():
             conn.close()
             raise HTTPException(status_code=400, detail="Email already registered")
@@ -82,7 +101,7 @@ def register_user(user: UserAuth):
         hashed_password = pwd_context.hash(user.password)
         display_name = user.email.split('@')[0]
         default_currency = "USD"
-        c.execute("INSERT INTO users (email, password, display_name, default_currency) VALUES (?, ?, ?, ?)", (user.email, hashed_password, display_name, default_currency))
+        c.execute("INSERT INTO users (email, password, display_name, default_currency) VALUES (%s, %s, %s, %s)", (user.email, hashed_password, display_name, default_currency))
         conn.commit()
         conn.close()
         
@@ -96,9 +115,9 @@ def register_user(user: UserAuth):
 @app.post("/login")
 def login_user(user: UserAuth):
     try:
-        conn = sqlite3.connect(DB_PATH)
+        conn = get_db_connection()
         c = conn.cursor()
-        c.execute("SELECT password FROM users WHERE email=?", (user.email,))
+        c.execute("SELECT password FROM users WHERE email=%s", (user.email,))
         row = c.fetchone()
         conn.close()
         
@@ -131,9 +150,9 @@ class ProfileUpdate(BaseModel):
 
 @app.get("/profile")
 def get_profile(email: str = Depends(get_current_user_email)):
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_connection()
     c = conn.cursor()
-    c.execute("SELECT email, display_name, default_currency FROM users WHERE email=?", (email,))
+    c.execute("SELECT email, display_name, default_currency FROM users WHERE email=%s", (email,))
     row = c.fetchone()
     conn.close()
     if not row:
@@ -146,9 +165,9 @@ def get_profile(email: str = Depends(get_current_user_email)):
 
 @app.put("/profile")
 def update_profile(profile: ProfileUpdate, email: str = Depends(get_current_user_email)):
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_connection()
     c = conn.cursor()
-    c.execute("UPDATE users SET display_name=?, default_currency=? WHERE email=?", (profile.display_name, profile.default_currency, email))
+    c.execute("UPDATE users SET display_name=%s, default_currency=%s WHERE email=%s", (profile.display_name, profile.default_currency, email))
     conn.commit()
     conn.close()
     return {"message": "Profile updated successfully"}
@@ -160,9 +179,9 @@ class PortfolioAsset(BaseModel):
 
 @app.get("/portfolio")
 def get_portfolio(email: str = Depends(get_current_user_email)):
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_connection()
     c = conn.cursor()
-    c.execute("SELECT id, name, ticker, quantity FROM portfolios WHERE email=?", (email,))
+    c.execute("SELECT id, name, ticker, quantity FROM portfolios WHERE email=%s", (email,))
     rows = c.fetchall()
     conn.close()
     
@@ -178,24 +197,24 @@ def get_portfolio(email: str = Depends(get_current_user_email)):
 
 @app.post("/portfolio")
 def add_portfolio_asset(asset: PortfolioAsset, email: str = Depends(get_current_user_email)):
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_connection()
     c = conn.cursor()
-    c.execute("SELECT id, quantity FROM portfolios WHERE email=? AND ticker=?", (email, asset.ticker))
+    c.execute("SELECT id, quantity FROM portfolios WHERE email=%s AND ticker=%s", (email, asset.ticker))
     row = c.fetchone()
     if row:
         new_quantity = row[1] + asset.quantity
-        c.execute("UPDATE portfolios SET quantity=? WHERE id=?", (new_quantity, row[0]))
+        c.execute("UPDATE portfolios SET quantity=%s WHERE id=%s", (new_quantity, row[0]))
     else:
-        c.execute("INSERT INTO portfolios (email, name, ticker, quantity) VALUES (?, ?, ?, ?)", (email, asset.name, asset.ticker, asset.quantity))
+        c.execute("INSERT INTO portfolios (email, name, ticker, quantity) VALUES (%s, %s, %s, %s)", (email, asset.name, asset.ticker, asset.quantity))
     conn.commit()
     conn.close()
     return {"message": "Asset added successfully"}
 
 @app.delete("/portfolio/{ticker}")
 def delete_portfolio_asset(ticker: str, email: str = Depends(get_current_user_email)):
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_connection()
     c = conn.cursor()
-    c.execute("DELETE FROM portfolios WHERE email=? AND ticker=?", (email, ticker))
+    c.execute("DELETE FROM portfolios WHERE email=%s AND ticker=%s", (email, ticker))
     conn.commit()
     conn.close()
     return {"message": "Asset removed successfully"}
