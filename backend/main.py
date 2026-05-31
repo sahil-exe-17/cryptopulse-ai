@@ -78,36 +78,46 @@ class UserAuth(BaseModel):
 
 @app.post("/register")
 def register_user(user: UserAuth):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("SELECT email FROM users WHERE email=?", (user.email,))
-    if c.fetchone():
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute("SELECT email FROM users WHERE email=?", (user.email,))
+        if c.fetchone():
+            conn.close()
+            raise HTTPException(status_code=400, detail="Email already registered")
+        
+        hashed_password = pwd_context.hash(user.password)
+        display_name = user.email.split('@')[0]
+        default_currency = "USD"
+        c.execute("INSERT INTO users (email, password, display_name, default_currency) VALUES (?, ?, ?, ?)", (user.email, hashed_password, display_name, default_currency))
+        conn.commit()
         conn.close()
-        raise HTTPException(status_code=400, detail="Email already registered")
-    
-    hashed_password = pwd_context.hash(user.password)
-    display_name = user.email.split('@')[0]
-    default_currency = "USD"
-    c.execute("INSERT INTO users (email, password, display_name, default_currency) VALUES (?, ?, ?, ?)", (user.email, hashed_password, display_name, default_currency))
-    conn.commit()
-    conn.close()
-    
-    token = jwt.encode({"sub": user.email, "exp": datetime.now(timezone.utc) + timedelta(hours=24)}, SECRET_KEY, algorithm=ALGORITHM)
-    return {"token": token, "email": user.email}
+        
+        token = jwt.encode({"sub": user.email, "exp": datetime.now(timezone.utc) + timedelta(hours=24)}, SECRET_KEY, algorithm=ALGORITHM)
+        return {"token": token, "email": user.email}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"DB Error: {str(e)}")
 
 @app.post("/login")
 def login_user(user: UserAuth):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("SELECT password FROM users WHERE email=?", (user.email,))
-    row = c.fetchone()
-    conn.close()
-    
-    if not row or not pwd_context.verify(user.password, row[0]):
-        raise HTTPException(status_code=401, detail="Invalid email or password")
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute("SELECT password FROM users WHERE email=?", (user.email,))
+        row = c.fetchone()
+        conn.close()
         
-    token = jwt.encode({"sub": user.email, "exp": datetime.now(timezone.utc) + timedelta(hours=24)}, SECRET_KEY, algorithm=ALGORITHM)
-    return {"token": token, "email": user.email}
+        if not row or not pwd_context.verify(user.password, row[0]):
+            raise HTTPException(status_code=401, detail="Invalid email or password")
+            
+        token = jwt.encode({"sub": user.email, "exp": datetime.now(timezone.utc) + timedelta(hours=24)}, SECRET_KEY, algorithm=ALGORITHM)
+        return {"token": token, "email": user.email}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"DB Error: {str(e)}")
 
 def get_current_user_email(authorization: str = Header(None)):
     if not authorization or not authorization.startswith("Bearer "):
