@@ -7,7 +7,10 @@ from sklearn.linear_model import LinearRegression
 from datetime import datetime, timedelta, timezone
 import sqlite3
 import jwt
+import os
 from passlib.context import CryptContext
+
+DB_PATH = "/tmp/users.db" if os.environ.get("VERCEL") else "users.db"
 from pydantic import BaseModel
 
 app = FastAPI(title="CryptoPulse AI Backend")
@@ -41,7 +44,7 @@ SECRET_KEY = "crypto_pulse_secret_key_change_in_prod"
 ALGORITHM = "HS256"
 
 def init_db():
-    conn = sqlite3.connect("users.db")
+    conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS users
                  (email TEXT PRIMARY KEY, password TEXT, display_name TEXT, default_currency TEXT)''')
@@ -63,7 +66,7 @@ class UserAuth(BaseModel):
 
 @app.post("/register")
 def register_user(user: UserAuth):
-    conn = sqlite3.connect("users.db")
+    conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute("SELECT email FROM users WHERE email=?", (user.email,))
     if c.fetchone():
@@ -82,7 +85,7 @@ def register_user(user: UserAuth):
 
 @app.post("/login")
 def login_user(user: UserAuth):
-    conn = sqlite3.connect("users.db")
+    conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute("SELECT password FROM users WHERE email=?", (user.email,))
     row = c.fetchone()
@@ -113,7 +116,7 @@ class ProfileUpdate(BaseModel):
 
 @app.get("/profile")
 def get_profile(email: str = Depends(get_current_user_email)):
-    conn = sqlite3.connect("users.db")
+    conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute("SELECT email, display_name, default_currency FROM users WHERE email=?", (email,))
     row = c.fetchone()
@@ -128,7 +131,7 @@ def get_profile(email: str = Depends(get_current_user_email)):
 
 @app.put("/profile")
 def update_profile(profile: ProfileUpdate, email: str = Depends(get_current_user_email)):
-    conn = sqlite3.connect("users.db")
+    conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute("UPDATE users SET display_name=?, default_currency=? WHERE email=?", (profile.display_name, profile.default_currency, email))
     conn.commit()
@@ -142,7 +145,7 @@ class PortfolioAsset(BaseModel):
 
 @app.get("/portfolio")
 def get_portfolio(email: str = Depends(get_current_user_email)):
-    conn = sqlite3.connect("users.db")
+    conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute("SELECT id, name, ticker, quantity FROM portfolios WHERE email=?", (email,))
     rows = c.fetchall()
@@ -160,7 +163,7 @@ def get_portfolio(email: str = Depends(get_current_user_email)):
 
 @app.post("/portfolio")
 def add_portfolio_asset(asset: PortfolioAsset, email: str = Depends(get_current_user_email)):
-    conn = sqlite3.connect("users.db")
+    conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute("SELECT id, quantity FROM portfolios WHERE email=? AND ticker=?", (email, asset.ticker))
     row = c.fetchone()
@@ -175,7 +178,7 @@ def add_portfolio_asset(asset: PortfolioAsset, email: str = Depends(get_current_
 
 @app.delete("/portfolio/{ticker}")
 def delete_portfolio_asset(ticker: str, email: str = Depends(get_current_user_email)):
-    conn = sqlite3.connect("users.db")
+    conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute("DELETE FROM portfolios WHERE email=? AND ticker=?", (email, ticker))
     conn.commit()
